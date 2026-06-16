@@ -1,55 +1,43 @@
 import requests
-import json
 from bs4 import BeautifulSoup
+import json
 
 
 def scrape_recipe_page(url: str):
-
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0 Safari/537.36"
-        )
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36"
     }
 
     try:
-        response = requests.get(
-            url,
-            headers=headers,
-            timeout=20,
-            allow_redirects=True
-        )
+        r = requests.get(url, headers=headers, timeout=20)
 
-        response.raise_for_status()
+        if r.status_code != 200:
+            raise Exception(f"HTTP {r.status_code}")
 
-    except requests.exceptions.RequestException as e:
-        return {"error": f"HTTP {str(e)}"}
+        soup = BeautifulSoup(r.text, "html.parser")
 
-    soup = BeautifulSoup(response.text, "html.parser")
+        # TRY JSON-LD FIRST
+        scripts = soup.find_all("script", type="application/ld+json")
 
-    scripts = soup.find_all("script", type="application/ld+json")
+        for s in scripts:
+            try:
+                data = json.loads(s.string)
 
-    for script in scripts:
-        if not script.string:
-            continue
+                if isinstance(data, list):
+                    data = data[0]
 
-        try:
-            data = json.loads(script.string)
-
-            if isinstance(data, list):
-                for item in data:
-                    if isinstance(item, dict) and "Recipe" in str(item.get("@type", "")):
-                        return item
-
-            elif isinstance(data, dict):
-                if "Recipe" in str(data.get("@type", "")):
+                if isinstance(data, dict) and data.get("@type") == "Recipe":
                     return data
 
-        except json.JSONDecodeError:
-            continue
+            except:
+                continue
 
-    return {
-        "error": "Recipe schema not found",
-        "title": soup.title.string if soup.title else "Unknown"
-    }
+        # FALLBACK EXTRACTION
+        return {
+            "name": soup.title.string if soup.title else "Recipe",
+            "recipeIngredient": [],
+            "recipeInstructions": []
+        }
+
+    except Exception as e:
+        raise Exception(f"Scraping failed: {str(e)}")
